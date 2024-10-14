@@ -1,7 +1,7 @@
 import os
 import discord
 import asyncio #More time
-from datetime import datetime, timedelta #Time
+from datetime import datetime, timedelta #Time  
 from dotenv import load_dotenv #Enviromental Variable
 import pytz #Timezone
 import json #Stores event data
@@ -47,7 +47,8 @@ def save_events():
             "channel": event_details["channel"],
             "user": event_details["user"],
             "message": event_details["message"],
-            "roles": event_details.get("roles", [])
+            "roles": event_details.get("roles", []),
+            "repeat": event_details.get("repeat", False)
         }
         for event_id, event_details in events.items()
 
@@ -71,7 +72,7 @@ async def send_reminder(channel, message):
     await channel.send(message)
 
 
-async def schedule_reminder(event_time, channel, message, role_ids):
+async def schedule_reminder(event_time, channel, message, role_ids, repeat):
     reminders = calculate_reminders(event_time)
 
     now = datetime.now(pytz.timezone('America/New_York'))
@@ -101,9 +102,27 @@ async def schedule_reminder(event_time, channel, message, role_ids):
         await asyncio.sleep(five_minute_announcement)
         await send_reminder(channel, f"{message} {role_mentions}")
 
+    if repeat:
+        next_event_time = event_time + timedelta(weeks=1) #Gets the time for next week
+        event_id = f"{channel.id}_{next_event_time.timestamp()}_{uuid.uuid4()}" #Makes new id for event
+
+        events[event_id] = {
+            "time": next_event_time,
+            "channel": channel.id,
+            "user": "bot",
+            "message": message,
+            "roles": role_ids,
+            "repeat": repeat
+        }
+        save_events()
+        
+        print(f"Repeating event scheduled for {next_event_time.strftime('%Y-%m-%d %H:%M %Z')}") ##FIX
+
+        
+
 
 @bot.slash_command(name="announce", description="Schedule an event and get reminders periodically before event occurs.")
-async def announce(ctx, day: int, month: int, time: str, message: str, roles: str):
+async def announce(ctx, day: int, month: int, time: str, message: str, roles: str, repeat: bool = False):
     #print(events)
     await ctx.respond("Processing your request...")
     try:
@@ -131,14 +150,15 @@ async def announce(ctx, day: int, month: int, time: str, message: str, roles: st
             "channel": ctx.channel.id,
             "user": ctx.user.name,
             "message": message,
-            "roles": role_ids
+            "roles": role_ids,
+            "repeat": repeat
         }
 
         save_events()
         
         await ctx.send(f"Event **[{event_id}]** scheduled for *{event_time.strftime('%Y-%m-%d %H:%M %Z')}*.")
         
-        await schedule_reminder(event_time, ctx.channel, message, role_ids)
+        await schedule_reminder(event_time, ctx.channel, message, role_ids, repeat)
 
     except ValueError:
         await ctx.send("Invalid input. Please use the format: `/announce day month hour:minute`")
@@ -156,7 +176,7 @@ async def deleteannouncement(ctx, event_id: str):
 
 
 @bot.slash_command(description="Edits event.")
-async def editannouncement(ctx, event_id: str, day: int, month: int, time: str, message: str, roles: str="none"):
+async def editannouncement(ctx, event_id: str, day: int, month: int, time: str, message: str, roles: str="none", repeat: bool = False):
     await ctx.respond("Processing your request...")
 
     if event_id in events:
@@ -172,6 +192,7 @@ async def editannouncement(ctx, event_id: str, day: int, month: int, time: str, 
 
             events[event_id]["time"] = event_time
             events[event_id]["message"] = message
+            events[event_id]["repeat"] = repeat
 
             if roles:
                 role_ids = []
@@ -220,6 +241,8 @@ async def listannouncements(ctx):
 async def on_ready():
     print(f'{bot.user} is now running.')
 
+    asyncio.create_task(periodic_cleanup())
+
     for event_id, event_details in events.items():
         event_time = event_details["time"]
         now = datetime.now(pytz.timezone('America/New_York'))
@@ -227,9 +250,32 @@ async def on_ready():
         if event_time > now:
             channel = bot.get_channel(event_details["channel"])
             role_ids = event_details.get("roles", [])
-            asyncio.create_task(schedule_reminder(event_time, channel, event_details["message"], role_ids))
+            asyncio.create_task(schedule_reminder(event_time, channel, event_details["message"], role_ids, event_details.get("repeat", False)))
         else:
             print(f"Event {event_id} has passed.")
+
+
+async def cleanup_past_events():
+    now = datetime.now(pytz.timezone('America/New_York'))
+    events_to_remove = []
+    
+    for event_id, event_details in events.items():
+        if event_details["time"] < now:
+            events_to_remove.append(event_id)
+
+    for event_id in events_to_remove:
+        del events[event_id]
+        print(f"Deleted past event {event_id}.")
+
+    save_events()
+
+
+async def periodic_cleanup():
+    while True:
+        await asyncio.sleep(3600)  #Wait for one hour
+        await cleanup_past_events()
+
+
 
 @bot.command(description="Gives bot ping.")
 async def ping(ctx):
