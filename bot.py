@@ -5,6 +5,10 @@ from datetime import datetime, timedelta #Time
 from dotenv import load_dotenv #Enviromental Variable
 import pytz #Timezone
 import json #Stores event data
+import uuid #Unique IDs
+
+#Invite Link
+#https://discord.com/oauth2/authorize?client_id=1289305831489147063&scope=bot+applications.commands&permissions=268435456
 
 
 load_dotenv()
@@ -42,7 +46,8 @@ def save_events():
             "time": event_details["time"].isoformat(),
             "channel": event_details["channel"],
             "user": event_details["user"],
-            "message": event_details["message"]
+            "message": event_details["message"],
+            "roles": event_details.get("roles", [])
         }
         for event_id, event_details in events.items()
 
@@ -112,11 +117,11 @@ async def announce(ctx, day: int, month: int, time: str, message: str, roles: st
             await ctx.send("Event time has already passed.")
             return
         
-        event_id = f"{ctx.user.id}_{event_time.timestamp()}"
+        event_id = f"{ctx.user.id}_{event_time.timestamp()}_{uuid.uuid4()}"
 
         role_ids = []
         role_mentions = roles.split(",")
-        for role in role.mentions:
+        for role in role_mentions:
             stripped_role = role.strip()
             if stripped_role and stripped_role.startswith("<@&") and stripped_role.endswith(">"):
                 role_ids.append(stripped_role[3:-1])
@@ -151,8 +156,9 @@ async def deleteannouncement(ctx, event_id: str):
 
 
 @bot.slash_command(description="Edits event.")
-async def editannouncement(ctx, event_id: str, day: int, month: int, time: str, message: str):
+async def editannouncement(ctx, event_id: str, day: int, month: int, time: str, message: str, roles: str="none"):
     await ctx.respond("Processing your request...")
+
     if event_id in events:
         try:
             hour, minute = map(int, time.split(":"))
@@ -165,6 +171,17 @@ async def editannouncement(ctx, event_id: str, day: int, month: int, time: str, 
                 return
 
             events[event_id]["time"] = event_time
+            events[event_id]["message"] = message
+
+            if roles:
+                role_ids = []
+                role_mentions = roles.split(",")
+                for role in role_mentions:
+                    stripped_role = role.strip()
+                    if stripped_role.startswith("<@&") and stripped_role.endswith(">"):
+                        role_ids.append(stripped_role[3:-1])  # Extract role ID from <@&roleID>
+                events[event_id]["roles"] = role_ids
+
             await ctx.send(f"Event **{event_id}** has been updated to *{event_time.strftime('%Y-%m-%d %H:%M %Z')}*")
         except:
             await ctx.send(f"Invalid input. Please use the format: `hour:minute` in military time.")
