@@ -1,2 +1,8 @@
-# Tokens
+# Ignore the .env file
 .env
+
+# Ignore all log files
+*.log
+
+# Ignore the temporary directory
+temp/
