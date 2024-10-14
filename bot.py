@@ -122,7 +122,7 @@ async def schedule_reminder(event_time, channel, message, role_ids, repeat):
 
 
 @bot.slash_command(name="announce", description="Schedule an event and get reminders periodically before event occurs.")
-async def announce(ctx, day: int, month: int, time: str, message: str, roles: str, repeat: bool = False):
+async def announce(ctx, day: int, month: int, time: str, message: str, roles: str, channel: discord.TextChannel = None, repeat: bool = False):
     #print(events)
     await ctx.respond("Processing your request...")
     try:
@@ -138,6 +138,7 @@ async def announce(ctx, day: int, month: int, time: str, message: str, roles: st
         
         event_id = f"{ctx.user.id}_{event_time.timestamp()}_{uuid.uuid4()}"
 
+        #Stores all roles/mentions
         role_ids = []
         role_mentions = roles.split(",")
         for role in role_mentions:
@@ -145,9 +146,11 @@ async def announce(ctx, day: int, month: int, time: str, message: str, roles: st
             if stripped_role and stripped_role.startswith("<@&") and stripped_role.endswith(">"):
                 role_ids.append(stripped_role[3:-1])
 
+        target_channel = channel if channel else ctx.channel
+
         events[event_id] = {
             "time": event_time,
-            "channel": ctx.channel.id,
+            "channel": target_channel.id,
             "user": ctx.user.name,
             "message": message,
             "roles": role_ids,
@@ -176,7 +179,7 @@ async def deleteannouncement(ctx, event_id: str):
 
 
 @bot.slash_command(description="Edits event.")
-async def editannouncement(ctx, event_id: str, day: int, month: int, time: str, message: str, roles: str="none", repeat: bool = False):
+async def editannouncement(ctx, event_id: str, day: int, month: int, time: str, message: str, roles: str="none", channel_id: str = None, repeat: bool = False):
     await ctx.respond("Processing your request...")
 
     if event_id in events:
@@ -203,6 +206,15 @@ async def editannouncement(ctx, event_id: str, day: int, month: int, time: str, 
                         role_ids.append(stripped_role[3:-1])  # Extract role ID from <@&roleID>
                 events[event_id]["roles"] = role_ids
 
+
+            if channel_id:
+                channel = bot.get_channel(int(channel_id))
+                if channel:
+                    events[event_id]["channel"] = channel.id
+                else:
+                    await ctx.send(f"Channel with ID {channel_id} does not exist. Defaulting to previous channel.")
+
+
             await ctx.send(f"Event **{event_id}** has been updated to *{event_time.strftime('%Y-%m-%d %H:%M %Z')}*")
         except:
             await ctx.send(f"Invalid input. Please use the format: `hour:minute` in military time.")
@@ -223,6 +235,10 @@ async def listannouncements(ctx):
     for event_id, event_details in events.items():
         event_time = event_details["time"].strftime('%Y-%m-%d %H:%M %Z')
         custom_message = event_details.get("message", "No Message Found")
+        channel_id = event_details.get("channel")
+        channel = bot.get_channel(channel_id)
+
+        channel_name = channel.name if channel else "Unknown Channel"
         
         roles = []
         for role_id in event_details.get("roles", []):
@@ -231,7 +247,7 @@ async def listannouncements(ctx):
         
         roles_string = " ,".join(roles)
 
-        event_list.append(f"Event ID: **{event_id}**, Time: {event_time}, User: {event_details['user']}, Message: '{custom_message}', Roles: {roles}.")
+        event_list.append(f"Event ID: **{event_id}**, Time: {event_time}, Channel: {channel_name}, User: {event_details['user']}, Message: '{custom_message}', Roles: {roles_string}.")
 
     message = "\n".join(event_list)
     await ctx.send(f"Scheduled Events:\n {message}")
